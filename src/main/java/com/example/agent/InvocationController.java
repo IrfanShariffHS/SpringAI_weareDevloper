@@ -9,8 +9,9 @@ import reactor.core.publisher.Flux;
 public class InvocationController {
     private final ChatService chatService;
 
-    public InvocationController(ChatService chatService) {
-        this.chatService = chatService;
+       @PostMapping(value = "load", consumes = MediaType.TEXT_PLAIN_VALUE)
+    public void loadDocument(@RequestBody String content) {
+        chatService.loadDocument(content);
     }
 
     @PostMapping(value = "invocations", produces = MediaType.TEXT_PLAIN_VALUE)
