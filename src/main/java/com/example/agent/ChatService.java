@@ -1,3 +1,4 @@
+
 package com.example.agent;
 
 import java.util.List;
@@ -12,6 +13,7 @@ import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
 import org.springframework.ai.chat.memory.repository.jdbc.PostgresChatMemoryRepositoryDialect;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +30,17 @@ public class ChatService {
 
             Use the provided documents to answer questions when relevant.
 
+            You have access to the following tools:
+            1. DateTimeTools: For date and time information.
+            2. WeatherTools: For weather information.
+            3. MCP Tools: For accessing external services and capabilities.
+
+            Use the appropriate tools whenever they are relevant
+            to the user's request.
+
             If you do not have enough information, respond:
             "I don't know."
+
             Do not invent information.
             """;
 
@@ -39,42 +50,58 @@ public class ChatService {
     public ChatService(
             ChatClient.Builder chatClientBuilder,
             DataSource dataSource,
-            VectorStore vectorStore) {
+            VectorStore vectorStore,
+            ToolCallbackProvider tools) {
 
         this.vectorStore = vectorStore;
 
-        // PostgreSQL JDBC chat memory repository
+        // 1. Configure PostgreSQL JDBC chat memory repository
         JdbcChatMemoryRepository chatMemoryRepository =
                 JdbcChatMemoryRepository.builder()
                         .dataSource(dataSource)
                         .dialect(new PostgresChatMemoryRepositoryDialect())
                         .build();
 
-        // Configure conversation memory
+        // 2. Configure conversation memory
         ChatMemory chatMemory = MessageWindowChatMemory.builder()
                 .chatMemoryRepository(chatMemoryRepository)
                 .maxMessages(20)
                 .build();
 
-        // Configure ChatClient
+        // 3. Configure ChatClient with memory, RAG and tools
         this.chatClient = chatClientBuilder
                 .defaultSystem(DEFAULT_SYSTEM_PROMPT)
+
+                // Conversation memory and RAG
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build(),
                         QuestionAnswerAdvisor.builder(vectorStore).build()
                 )
-                .defaultTools(new DateTimeTools(), new WeatherTools())
+
+                // Register local tools and MCP tools
+                .defaultTools(
+                        new DateTimeTools(),
+                        new WeatherTools(),
+                        tools
+                )
+
                 .build();
     }
 
     /**
      * Send a prompt to Amazon Bedrock and stream the response.
+     *
+     * @param prompt   User question
+     * @param username Conversation identifier
+     * @return Streaming AI response
      */
     public Flux<String> chat(String prompt, String username) {
 
         if (prompt == null || prompt.isBlank()) {
             return Flux.error(
-                    new IllegalArgumentException("Prompt cannot be empty")
+                    new IllegalArgumentException(
+                            "Prompt cannot be empty"
+                    )
             );
         }
 
@@ -97,6 +124,8 @@ public class ChatService {
 
     /**
      * Store document content in PGVector.
+     *
+     * @param content Document content
      */
     public void loadDocument(String content) {
 
